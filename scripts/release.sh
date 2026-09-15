@@ -26,7 +26,8 @@ fi
 ZIP="dist/QoderBar-$VERSION.zip"
 rm -f "$ZIP" "$ZIP.sha256"
 ditto -c -k --keepParent dist/QoderBar.app "$ZIP"
-shasum -a 256 "$ZIP" | tee "$ZIP.sha256"
+# 校验文件只写 zip 文件名（不带目录），用户下载后可直接 `shasum -a 256 -c xxx.sha256`
+(cd dist && shasum -a 256 "QoderBar-$VERSION.zip" | tee "QoderBar-$VERSION.zip.sha256")
 
 echo "==> 完成: $ROOT/$ZIP"
 echo "    上传该 zip 到 GitHub Releases 即可；用户解压后拖入「应用程序」。"
