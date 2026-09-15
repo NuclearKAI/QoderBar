@@ -72,10 +72,10 @@ struct QuotaCard: View {
                 }
             }
 
-            if let paceLine = paceLine(for: quota) {
-                Text(paceLine)
+            if let pace = paceResult(for: quota) {
+                Text(pace.text)
                     .font(.system(size: 10))
-                    .foregroundStyle(paceLine.contains("用尽") ? Color.orange : Color.secondary)
+                    .foregroundStyle(pace.warning ? Color.orange : Color.secondary)
                     .lineLimit(2)
             }
             if let officialError {
@@ -126,10 +126,10 @@ struct QuotaCard: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
-            if let line = budgetPaceLine(used: used, total: total) {
-                Text(line)
+            if let pace = budgetPaceResult(used: used, total: total) {
+                Text(pace.text)
                     .font(.system(size: 10))
-                    .foregroundStyle(line.contains("用尽") ? Color.orange : Color.secondary)
+                    .foregroundStyle(pace.warning ? Color.orange : Color.secondary)
                     .lineLimit(2)
             }
             if let officialError {
@@ -186,14 +186,13 @@ struct QuotaCard: View {
         return Theme.creditsColor
     }
 
-    /// Pace 预测：判断能否撑到重置（官方模式按"计费周期已过天数"分摊官方用量，最准）
-    private func paceLine(for quota: QuotaSnapshot) -> String? {
+    /// 日均口径：官方模式取"计费周期已过天数"（周期刚开始按 1 天下限）；无周期信息时取本地近 7 天日均
+    private func paceResult(for quota: QuotaSnapshot) -> QuotaPace.Result? {
         let daily: Double
         let label: String
         if let reset = quota.resetsAt,
            let start = Calendar.current.date(byAdding: .month, value: -1, to: reset),
            quota.used > 0 {
-            // 周期刚开始时用不足 1 天，摊出来会失真，下限取 1 天
             let elapsedDays = max(1.0, Date().timeIntervalSince(start) / 86_400)
             daily = quota.used / elapsedDays
             label = "周期日均"
@@ -201,30 +200,15 @@ struct QuotaCard: View {
             daily = model.snapshot.weekDailyByProduct[quota.product] ?? 0
             label = "近 7 天日均"
         }
-        guard quota.total > 0, daily > 0.05 else { return nil }
-        let daysToExhaust = max(0, quota.total - quota.used) / daily
-        if let resetAt = quota.resetsAt {
-            let remainDays = max(0, resetAt.timeIntervalSinceNow / 86_400)
-            if daysToExhaust < remainDays {
-                return String(format: "%@ %.1f 积分 · 约 %.1f 天后用尽，撑不到重置", label, daily, daysToExhaust)
-            }
-            let projected = quota.used + daily * remainDays
-            return String(format: "%@ %.1f 积分 · 预计重置时 %@（额度 %@）",
-                          label, daily, Fmt.compact(Int(projected.rounded())), Fmt.compact(Int(quota.total.rounded())))
-        }
-        return String(format: "%@ %.1f 积分 · 约 %.1f 天后用尽", label, daily, daysToExhaust)
+        return QuotaPace.describe(
+            used: quota.used, total: quota.total, daily: daily,
+            label: label, resetsAt: quota.resetsAt)
     }
 
-    private func budgetPaceLine(used: Double, total: Double) -> String? {
-        let daily = model.snapshot.weekDailyByProduct[.qoderCN] ?? 0
-        guard total > 0, daily > 0.05 else { return nil }
-        let remainDays = max(0, nextMonthStart.timeIntervalSinceNow / 86_400)
-        let daysToExhaust = max(0, total - used) / daily
-        if daysToExhaust < remainDays {
-            return String(format: "近 7 天日均 %.1f 积分 · 约 %.1f 天后用尽，撑不到重置", daily, daysToExhaust)
-        }
-        let projected = used + daily * remainDays
-        return String(format: "近 7 天日均 %.1f 积分 · 预计重置时 %@（额度 %@）",
-                      daily, Fmt.compact(Int(projected.rounded())), Fmt.compact(Int(total.rounded())))
+    private func budgetPaceResult(used: Double, total: Double) -> QuotaPace.Result? {
+        QuotaPace.describe(
+            used: used, total: total,
+            daily: model.snapshot.weekDailyByProduct[.qoderCN] ?? 0,
+            label: "近 7 天日均", resetsAt: nextMonthStart)
     }
 }
