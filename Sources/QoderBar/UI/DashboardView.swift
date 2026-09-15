@@ -46,7 +46,7 @@ struct DashboardView: View {
                 title: snap.hasRealTokens ? "今日输出 Tokens" : "今日输出 Tokens（估算）",
                 value: Fmt.compact(snap.today.output),
                 caption: "\(snap.todayCalls) 次调用 · \(snap.todaySessions) 个会话",
-                caption2: snap.hasRealTokens ? nil : "按回复内容长度折算"
+                caption2: snap.hasRealTokens ? nil : "含思考与工具调用参数；服务端不返回 token，按字符估算"
             )
             StatCard(
                 title: "今日输入 Tokens（上下文）",

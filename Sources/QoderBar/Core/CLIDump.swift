@@ -18,6 +18,15 @@ enum CLIDump {
         } catch {
             print("读取失败: \(error.localizedDescription)")
         }
+        do {
+            let summary = try QoderIDEClient.fetchCreditsSummary(site: settings.quotaSite)
+            print(String(format: "官方统计（近一年）: 总消耗 %.0f 积分 · 单日峰值 %.0f", summary.total, summary.peak))
+            let heat = try QoderIDEClient.fetchCreditsHeatmap(days: 14, site: settings.quotaSite)
+            let recent = heat.suffix(7).map { "\($0.date.suffix(5)) \(String(format: "%.1f", $0.value))" }.joined(separator: " · ")
+            print("官方每日消耗（近 7 天）: \(recent)")
+        } catch {
+            print("官方统计读取失败: \(error.localizedDescription)")
+        }
 
         print("── WorkBuddy ──")
         if FileManager.default.fileExists(atPath: WorkBuddyQuota.infoURL.path) {

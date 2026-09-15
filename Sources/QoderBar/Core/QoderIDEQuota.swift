@@ -133,8 +133,45 @@ enum QoderIDEClient {
             token = try accessToken(for: creds)
             source = .client
         }
+        let data = try authorizedGET(creds.usageURL, token: token, timeout: timeout)
+        return try parseUsage(data, site: site, source: source)
+    }
 
-        var request = URLRequest(url: creds.usageURL)
+    /// 官方近一年 credits 汇总：totalCredits / peakCredits（credits-summary）
+    static func fetchCreditsSummary(site: QuotaSite = .cn, timeout: TimeInterval = 15) throws -> (total: Double, peak: Double) {
+        guard let creds = credentials(for: site) else { throw QuotaFetchError.parse("不支持的站点") }
+        let token = try accessToken(for: creds)
+        var comps = URLComponents(url: creds.usageURL, resolvingAgainstBaseURL: false)!
+        comps.path = "/sash/api/v1/ai-conversations/credits-summary"
+        comps.query = "product=app"
+        let data = try authorizedGET(comps.url!, token: token, timeout: timeout)
+        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw QuotaFetchError.parse("credits-summary 解析失败")
+        }
+        return (double(root["totalCredits"]) ?? 0, double(root["peakCredits"]) ?? 0)
+    }
+
+    /// 官方每日 credits（credits-heatmap）：[(yyyy-MM-dd, credits)]
+    static func fetchCreditsHeatmap(days: Int = 120, site: QuotaSite = .cn, timeout: TimeInterval = 15) throws -> [(date: String, value: Double)] {
+        guard let creds = credentials(for: site) else { throw QuotaFetchError.parse("不支持的站点") }
+        let token = try accessToken(for: creds)
+        var comps = URLComponents(url: creds.usageURL, resolvingAgainstBaseURL: false)!
+        comps.path = "/sash/api/v1/ai-conversations/credits-heatmap"
+        comps.query = "organization_id=&days=\(days)&product=app"
+        let data = try authorizedGET(comps.url!, token: token, timeout: timeout)
+        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let items = root["items"] as? [[String: Any]] else {
+            throw QuotaFetchError.parse("credits-heatmap 解析失败")
+        }
+        return items.compactMap { item in
+            guard let date = item["date"] as? String else { return nil }
+            return (date, double(item["value"]) ?? 0)
+        }
+    }
+
+    /// 带 Bearer 的 GET（与 IDE 相同的头）
+    private static func authorizedGET(_ url: URL, token: String, timeout: TimeInterval) throws -> Data {
+        var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -143,7 +180,7 @@ enum QoderIDEClient {
         request.setValue("Qoder", forHTTPHeaderField: "User-Agent")
 
         let semaphore = DispatchSemaphore(value: 0)
-        var outcome: Result<QuotaSnapshot, Error>!
+        var outcome: Result<Data, Error>!
         URLSession.shared.dataTask(with: request) { data, response, error in
             defer { semaphore.signal() }
             if let error {
@@ -163,11 +200,7 @@ enum QoderIDEClient {
                 outcome = .failure(QuotaFetchError.http(http.statusCode))
                 return
             }
-            do {
-                outcome = .success(try parseUsage(data, site: site, source: source))
-            } catch {
-                outcome = .failure(error)
-            }
+            outcome = .success(data)
         }.resume()
         semaphore.wait()
         return try outcome.get()
