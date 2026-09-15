@@ -193,7 +193,8 @@ struct QuotaCard: View {
         if let reset = quota.resetsAt,
            let start = Calendar.current.date(byAdding: .month, value: -1, to: reset),
            quota.used > 0 {
-            let elapsedDays = max(0.5, Date().timeIntervalSince(start) / 86_400)
+            // 周期刚开始时用不足 1 天，摊出来会失真，下限取 1 天
+            let elapsedDays = max(1.0, Date().timeIntervalSince(start) / 86_400)
             daily = quota.used / elapsedDays
             label = "周期日均"
         } else {
