@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import Combine
 
-final class StatusItemController: NSObject {
+final class StatusItemController: NSObject, NSPopoverDelegate {
     private let statusItem: NSStatusItem
     private let popover = NSPopover()
     private let model: AppModel
@@ -31,6 +31,7 @@ final class StatusItemController: NSObject {
         // 因此改为手动管理：全局鼠标监听负责点击他处关闭，ESC 关闭。
         popover.behavior = .applicationDefined
         popover.animates = false
+        popover.delegate = self
 
         model.$menuBarTitle
             .receive(on: RunLoop.main)
@@ -143,15 +144,33 @@ final class StatusItemController: NSObject {
 
     private func showPopover() {
         guard let button = statusItem.button else { return }
-        NSApp.activate(ignoringOtherApps: true)
+        // macOS 14 起为协作式激活：旧的 activate(ignoringOtherApps:) 常被系统忽略，
+        // 应用不成为前台时面板内的菜单等控件交互不可靠
+        NSApp.activate()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
+        if let window = popover.contentViewController?.view.window {
+            window.makeKeyAndOrderFront(nil)
+        }
         installMonitors()
         model.panelDidOpen()
+        // 兜底：激活若被系统暂缓（协作式激活），用户首次点击后再补一次，
+        // 否则处于非激活状态时面板里的控件可能吞掉点击
+        if !NSApp.isActive {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                guard self?.popover.isShown == true, !NSApp.isActive else { return }
+                NSApp.activate()
+            }
+        }
     }
 
     private func closePopover() {
         popover.performClose(nil)
+        removeMonitors()
+        model.panelDidClose()
+    }
+
+    /// 面板被系统/其它路径关闭时同步状态，避免 panelVisible 卡住导致界面"不刷新"
+    func popoverDidClose(_ notification: Notification) {
         removeMonitors()
         model.panelDidClose()
     }
@@ -191,9 +210,13 @@ final class StatusItemController: NSObject {
         usageItem.target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "退出 QoderBar", action: #selector(contextQuit), keyEquivalent: "q").target = self
-        statusItem.menu = menu
-        statusItem.button?.performClick(nil)
-        statusItem.menu = nil
+        // 不把菜单挂到 statusItem.menu 上（挂上后左键会变成弹菜单且可能残留状态），
+        // 直接在按钮下方弹出菜单
+        if let button = statusItem.button {
+            menu.popUp(positioning: nil,
+                       at: NSPoint(x: 0, y: button.bounds.height + 4),
+                       in: button)
+        }
     }
 
     @objc private func contextOpen() {
